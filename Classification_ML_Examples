@@ -1,0 +1,184 @@
+
+# File for predicting a classification machine learning
+
+
+rm(list=ls())
+
+library(e1071)
+library(caret)
+library(randomForest)
+library(kernlab)
+library(rpart)
+library(nnet)
+library(lubridate)
+
+setwd("FILE DEPOT")
+list.files()
+path <- "FILE.csv"
+
+####Necessary functions####
+accuracy <- function(tp, tn, fp, fn){
+  top <- tp + tn
+  bottom <- tp + tn + fn + fp
+  return(top / bottom)
+}
+
+precision <- function(tp, fp){
+  tp <- tp
+  bottom <- tp + fp
+  return(tp / bottom)
+}
+
+recall <- function(tp, fn){
+  top <- tp
+  bottom <- tp + fn
+  return(top / bottom)
+}
+
+get_model_results <- function(actual, predicted, model_name){
+  c_table <- table(predicted, actual)
+  TP <- c_table[2,2]
+  TN <- c_table[1,1]
+  FP <- c_table[1,2]
+  FN <- c_table[2,1]
+  
+  names <- list('Model Type', 'TP', 'TN', 'FP', 'FN', 'Accuracy', 'Precision', 'Recall')
+  a <- accuracy(TP, TN, FP, FN)
+  p <- precision(TP,FP)
+  r <- recall(TP, FN)
+  table_values <- c(model_name, TP, TN, FP, FN, a, p, r)
+  results_matrix <- matrix(table_values); rownames(results_matrix) <- names
+  colnames(results_matrix) <- 'Value'
+  print("Contingency Table")
+  print(c_table)
+  print("Results of Model")
+  return(results_matrix)
+}
+
+set_threshold_function <- function(predicted_values){
+  threshold <- 0.5
+  predicted_values[predicted_values >= threshold] <- 1
+  predicted_values[predicted_values < threshold] <- 0
+  return(predicted_values)
+}
+
+####EXIM####
+sample_size <- 30000
+
+x <- read.csv(file = path, header = T, stringsAsFactor = T) # named as X as we initially clean the data
+
+take_sample <- function(data, size){
+  data <- data.frame(data)
+  sample <- data[sample(1:nrow(data), size, replace =F),]
+  
+  return(sample)
+}
+
+random_sample <- take_sample(x, sample_size)
+test_sample <- take_sample(x, 15000)
+counts_of_labels <- table(random_sample$Label)
+barplot(counts_of_labels, col = c(4,2)) #Col 4 = blue, negative. Col 2 = Red, positive
+
+str(random_sample) #Check the structure, find what needs to be converted.
+
+##### Munging-Convert factors to numeric if needed
+
+convert_to_numeric <- function(x){
+  x <- as.numeric(levels(x))[x]
+  return(x)
+}
+
+random_sample$Local.Time <- as.POSIXct(random_sample$Local.Time)
+
+str(random_sample)
+random_sample$ï..CustomerID <- NULL
+random_sample$BAS <- convert_to_numeric(random_sample$BAS)
+random_sample$DP <- convert_to_numeric(random_sample$DP)
+random_sample$actuatorPosition <- convert_to_numeric(random_sample$actuatorPosition)
+random_sample$Is.it.on. <- NULL
+
+random_sample$weekday <- wday(x = random_sample$Local.Time)
+random_sample$ValveSerialId<-NULL; random_sample$Local.Time<-NULL
+
+str(x_dat)
+str(random_sample)
+# Remove Vars that dictate the Label
+random_sample$RAT <- NULL; random_sample$Hour<- NULL; random_sample$enthalpy<-NULL
+
+target_label <- random_sample$Label
+y_dat <- target_label
+x_dat <- random_sample[,-target_label]
+
+#Logistic regression
+logic_model <- glm(formula = Label ~., data = random_sample)
+logic_predictions <- predict(logic_model)
+logic_predictions <- set_threshold_function(logic_predictions)
+plot(logic_model$residuals)
+
+# Decision Tree 
+dtree <- rpart(formula = Label ~ ., data = random_sample)
+plot(dtree); text(dtree)
+dtree_predictions <- predict(dtree)
+dtree_predictions <- set_threshold_function(predicted_values = dtree_predictions)
+
+rf <- randomForest(formula = Label ~ ., data = random_sample)
+rf_predictions <- predict(rf)
+rf_predictions <- set_threshold_function(rf_predictions)
+
+nb <- naiveBayes(as.factor(Label) ~ ., data = random_sample)
+nb_predictions <- predict(nb, as.data.frame(random_sample))
+
+svm <- svm(Label ~ ., data = random_sample)
+svm_predictions <- predict(svm)
+svm_predictions <- set_threshold_function(svm_predictions)
+
+get_model_results(actual = y_dat, predicted = logic_predictions, model_name = 'Logistic Regression')
+get_model_results(actual = y_dat, predicted = dtree_predictions, model_name = "Decision Tree")
+get_model_results(actual = y_dat, predicted = rf_predictions, model_name = 'Random Forest')
+get_model_results(actual = y_dat, predicted = nb_predictions, model_name = 'Naive Bayes')
+get_model_results(actual = y_dat, predicted = svm_predictions, model_name = 'SVClassifier')
+
+
+############ Do this with Test data now ###############
+
+test_sample$Local.Time <- as.POSIXct(test_sample$Local.Time)
+
+str(test_sample)
+test_sample$ï..CustomerID <- NULL
+test_sample$BAS <- convert_to_numeric(test_sample$BAS)
+test_sample$DP <- convert_to_numeric(test_sample$DP)
+test_sample$actuatorPosition <- convert_to_numeric(test_sample$actuatorPosition)
+test_sample$Is.it.on. <- NULL
+
+test_sample$weekday <- wday(x = test_sample$Local.Time)
+test_sample$ValveSerialId<-NULL; test_sample$Local.Time<-NULL
+
+str(x_dat)
+str(test_sample)
+# Remove Vars that dictate the Label
+test_sample$RAT <- NULL; test_sample$Hour<- NULL; test_sample$enthalpy<-NULL
+
+log_predicts_test <- predict(logic_model, newdata = test_sample)
+
+log_predicts_test <- set_threshold_function(log_predicts_test)
+get_model_results(actual = test_sample$Label, predicted = log_predicts_test, model_name = 'Logistic Regression')
+
+
+# Dtree
+dtree_predicts_test <- predict(dtree, newdata = test_sample)
+dtree_predicts_test <- set_threshold_function(dtree_predicts_test)
+
+get_model_results(actual = test_sample$Label, predicted = dtree_predicts_test, model_name = 'Decision Tree')
+
+## RF
+rf_predicts_test <- predict(rf, newdata = test_sample)
+rf_predicts_test <- set_threshold_function(rf_predicts_test)
+
+get_model_results(actual = test_sample$Label, predicted = rf_predicts_test, model_name = 'Random Forest')
+
+
+
+
+
+
+
