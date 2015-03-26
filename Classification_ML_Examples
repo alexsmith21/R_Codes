@@ -1,5 +1,8 @@
 
 # File for predicting a classification machine learning
+# This code example references an actual machine learning problem taken from my experience at my current company
+# The file name and repository have been changed
+#
 
 
 rm(list=ls())
