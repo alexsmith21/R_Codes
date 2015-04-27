@@ -1,0 +1,227 @@
+
+
+rm(list=ls())
+
+library(lubridate)
+library(Metrics)
+library(randomForest)
+library(caret)
+library(e1071)
+library(rpart)
+library(sqldf)
+
+
+####Necessary functions####
+accuracy <- function(tp, tn, fp, fn){
+  top <- tp + tn
+  bottom <- tp + tn + fn + fp
+  return(top / bottom)
+}
+
+precision <- function(tp, fp){
+  tp <- tp
+  bottom <- tp + fp
+  return(tp / bottom)
+}
+
+recall <- function(tp, fn){
+  top <- tp
+  bottom <- tp + fn
+  return(top / bottom)
+}
+
+get_model_results <- function(actual, predicted, model_name){
+  c_table <- table(predicted, actual)
+  TP <- c_table[2,2]
+  TN <- c_table[1,1]
+  FP <- c_table[1,2]
+  FN <- c_table[2,1]
+  
+  names <- list('Model Type', 'TP', 'TN', 'FP', 'FN', 'Accuracy', 'Precision', 'Recall')
+  a <- accuracy(TP, TN, FP, FN)
+  p <- precision(TP,FP)
+  r <- recall(TP, FN)
+  table_values <- c(model_name, TP, TN, FP, FN, a, p, r)
+  results_matrix <- matrix(table_values); rownames(results_matrix) <- names
+  colnames(results_matrix) <- 'Value'
+  print("Contingency Table")
+  print(c_table)
+  print("Results of Model")
+  return(results_matrix)
+}
+
+set_threshold_function <- function(predicted_values){
+  threshold <- 0.5
+  predicted_values[predicted_values >= threshold] <- 1
+  predicted_values[predicted_values < threshold] <- 0
+  return(predicted_values)
+}
+
+
+
+path <- "C:/Users/Alex.Smith/Desktop/Data Analysis Repository/Departments/Tech/Data Science Products/CoolingPredictor dataset3, scale up.csv"
+
+x <- read.csv(path, header= T, stringsAsFactors = F)[c(FALSE, TRUE, FALSE,FALSE,FALSE,FALSE, FALSE,FALSE,FALSE),]
+
+str(x)
+#### CLEANING AND LAEBELING ####
+x$Local.Time <- as.POSIXct(x$Local.Time)
+head(x$Local.Time)
+
+x$Hour <- hour(x$Local.Time); table(x$Hour)
+x$ValveSize <- NULL
+x$ValveSeatSize <- NULL
+x$ï..CustomerID <- NULL
+x$ValveSerialId <- NULL
+# Remove the values for labeling
+x$enthalpy <- NULL; x$Hour <- NULL; x$RAT <- NULL
+
+
+#str(x$BuildingType)
+
+x$AirControl[x$OutsideAirManagement == 'Economizer'] <- 1
+x$AirControl[x$OutsideAirManagement == 'Fixed'] <- 2
+x$AirControl[x$OutsideAirManagement == '100%'] <- 3
+barplot(table(x$AirControl))
+x$OutsideAirManagement <- NULL
+barplot(table(x$AirControl))
+
+x$Size <- c()
+x$Size[x$UnitSize == 'Small'] <- 1
+x$Size[x$UnitSize == 'Medium'] <- 2
+x$Size[x$UnitSize == 'Large'] <- 3
+barplot(table(x$Size)); x$UnitSize <- NULL
+
+operation_hours <- c(6:22)
+
+x$BuildingName <- NULL
+x$Local.Time <- NULL
+
+x$Controls <- c()
+x$Controls[x$control_mode == 'auto'] <- 1
+x$Controls[x$control_mode == 'fetech'] <- 2
+x$Controls[x$control_mode == 'manual'] <- 3
+x$control_mode <- NULL
+
+x$state <- NULL
+x$setPointType <- NULL
+
+#x$Label <- as.integer(x$Label)
+
+tree <- rpart(Label~., x)
+plot(tree)
+text(tree)
+#head(x)
+#str(x)
+
+cor(x)
+x$ï..CustomerID <- NULL
+x$RAH.1 <- NULL
+
+take_sample <- function(data, size){
+  data <- data.frame(data)
+  sample <- data[sample(1:nrow(data), size, replace =F),]
+  
+  return(sample)
+}
+
+sample_size <- 50000
+#x$Label <- as.integer(x$Label)
+
+trainIndex <- createDataPartition(x$Label, p = .60,
+                                  list = FALSE,
+                                  times = 1)
+
+
+train_sample <- x[trainIndex,]
+test_sample <- x[-trainIndex,]
+
+trainIndex2 <- createDataPartition(x$Label, p = .75,
+                                   list = FALSE,
+                                   times = 1)
+
+
+train_sample2 <- x[trainIndex2,]
+test_sample2 <- x[-trainIndex2,]
+
+trainIndex3 <- createDataPartition(x$Label, p=.85,
+                                   list = FALSE,
+                                   times=1)
+
+train_sample3 <- x[trainIndex3,]
+test_sample3 <- x[-trainIndex3,]
+
+
+summary(train_sample); summary(test_sample)
+
+hist(train_sample$gpm_mv)
+max(train_sample$gpm_mv)
+
+# Data mining shows the temp, rh, P2, LAT, DT, 
+
+cv.folds <- 10
+repeats <- 1
+
+library(caret)
+controls <- trainControl(method = 'repeatedcv',
+                         number = 10,
+                         repeats = 1)
+
+# MINING
+#gbm <- train(Label~., data = train_sample,
+#             method = 'gbm',
+#             trControl = controls)
+#summary(gbm)
+
+#gbm_2 <- train(Label~., data = train_sample2,
+#               method = 'gbm',
+#               trControl = controls)
+
+#summary(gbm_2)
+
+#gbm_3 <- train(Label~., data = train_sample3,
+#               method = 'gbm',
+#               trControl = controls)
+#summary(gbm_3)
+
+# 
+#### TOP 6 ####
+#one <- as.data.frame(summary(gbm))[1:6,]
+#two <- as.data.frame(summary(gbm_2))[1:6,]
+#three <- as.data.frame(summary(gbm_3))[1:6,]
+
+# Five Vars: Temperature_f, spacetype, P2, BuildingType, LWT
+
+formula <- Label ~ temperature_f + SpaceTypeId + P2 + BuildingTypeId + LWT
+
+tree <- rpart(formula, data = train_sample2)
+plot(tree); text(tree)
+
+tree_predictions <- predict(tree, newdata = test_sample2)
+tree_predictions <- set_threshold_function(tree_predictions)
+
+get_model_results(actual = test_sample2$Label, predicted = tree_predictions, model_name = 'Decision Tree' )
+
+logic_model <- glm(formula, train_sample2, family = binomial)
+logPred <- predict(logic_model, newdata = test_sample2)
+
+logPred <- set_threshold_function(logPred)
+
+get_model_results(actual = test_sample2$Label, predicted = logPred, "Logistic Regression")
+
+
+controls <- trainControl(method = 'repeatedcv',
+                         number = 10,
+                         repeats = 1)
+
+rf <- randomForest(formula, train_sample2)
+
+rf_prediction <- predict(rf, newdata = test_sample2)
+
+rf_prediction <- set_threshold_function(rf_prediction)
+get_model_results(test_sample2$Label, rf_prediction, "Random Forest")
+
+
+
+
+
