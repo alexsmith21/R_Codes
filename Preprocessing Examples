@@ -1,0 +1,91 @@
+# Preprocessing Examples
+
+
+
+rm(list=ls())
+
+file = "C:/Users/Alex.Smith/Desktop/Data Science, Course 1/Course 3, ML/Video_Store_R.csv"
+x<- read.csv(file, header=T)
+head(x)
+
+#1. Smoothing bin means
+# Done in Excel
+
+# 2. Min Max Norm Income
+
+max_min <- function(x) {
+  min <- min(x, na.rm = T)
+  max <- max(x, na.rm=T)
+  x <- (x - min) / (max - min)
+}
+x$income_norm <- max_min(x$Income)
+
+# 3. z-score norm Rentals
+
+z_score <- function(x) {
+  mean <- mean(x)
+  sd <- sd(x)
+  x <- (x - mean(x)) / sd(x)
+}
+x$Rentals_Z <- z_score(x$Rentals)
+  
+  
+# 4. Discretize the Income variable  
+x$Income[x$Income > 60000] <- 'High'
+x$Income[x$Income >= 25000 & x$Income <= 59000] <- "Mid"
+x$Income[x$Income < 25000] <- 'Low'
+
+head(x$Income)
+x$Income[which(x$Income == 6000)] <- "Low"
+
+# 5. Convert to normal 
+str(x)
+x$Gender <- as.character(x$Gender)
+x$Gender[x$Gender == "M"] <- 1
+x$Gender[x$Gender == "F"] <- 0
+
+x$Incidentals <- as.character(x$Incidentals)
+x$Incidentals[x$Incidentals == "Yes"] <- 1
+x$Incidentals[x$Incidentals == "No"] <- 0
+
+x$Genre <- as.character(x$Genre)
+x$Genre[x$Genre == "Action"] <- 1
+x$Genre[x$Genre == "Drama"] <- 2
+x$Genre[x$Genre == "Comedy"] <- 3
+
+x$Income[x$Income == "Low"] <- 1
+x$Income[x$Income == "High"] <- 3
+x$Income[x$Income == "Mid"] <- 2
+
+setwd("C:/Users/Alex.Smith/Desktop/Data Science, Course 1/Course 3, ML")
+write.csv(x, "Dat Norm, preprocessed.csv", row.names = F)
+
+# 6. Correlation analysis
+
+x$Cust.ID <- NULL # REMEMBER THIS
+head(x)
+x <- sapply(x, as.numeric)
+correlation <- cor(x)
+correlation
+library(lattice)
+
+levelplot(correlation, main = "Correlation Plot")
+
+#7 Crosstables
+x <- data.frame(x)
+library(gmodels)
+
+CrossTable(x$Gender, x$Genre)
+# Graph it
+counts <- table(x$Gender, x$Genre)
+barplot(counts, main = "Distribution of Genre by Count", 
+        xlab = "Genre", ylab = "Count", legend = rownames(counts),
+        col = c("darkblue", "red"))
+
+
+# 8. Summary of good customers (30 or more rentals)
+
+y <- x[x$Rentals >= 30,]
+summary(x)
+(summary(y))
+
