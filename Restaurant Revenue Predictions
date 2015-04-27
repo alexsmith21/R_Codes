@@ -1,0 +1,305 @@
+
+
+
+rm(list=ls())
+library(car)
+library(caret)
+library(lubridate)
+library(e1071)
+library(randomForest)
+library(Metrics)
+
+setwd('C:/Users/Alex.Smith/Desktop/Data Science, Course 1/Kaggle Comps/Restaurant Revenue Predictions/')
+
+train <- read.csv('train.csv', header= T,stringsAsFactors = F)
+test <- read.csv('test.csv', header= T,stringsAsFactors = F)
+
+head(train)
+
+summary(train)
+str(train)
+
+## Cleaning the city group column
+
+train$City.Group <- as.character(train$City.Group)
+train$City.Group[train$City.Group == "Big Cities"] <- 1
+train$City.Group[train$City.Group == "Other"] <- 0
+
+test$City.Group <- as.character(test$City.Group)
+test$City.Group[test$City.Group == "Big Cities"] <- 1
+test$City.Group[test$City.Group == "Other"] <- 0
+
+train$City.Group <- as.integer(train$City.Group); test$City.Group <- as.integer(test$City.Group)
+
+# Adding time columns
+train$Open.Date <- as.Date(train$Open.Date, format = "%m/%d/%Y")
+test$Open.Date <- as.Date(test$Open.Date, format = "%m/%d/%Y")
+
+#Lubridate functions
+train$Year <- year(train$Open.Date); train$Day <- wday(train$Open.Date); train$Month <- month(train$Open.Date); train$day_number <- day(train$Open.Date)
+test$Year <- year(test$Open.Date); test$Day <- wday(test$Open.Date); test$Month <- month(test$Open.Date); test$day_number <- day(test$Open.Date)
+head(train)
+
+### Converting the types
+train$Type <- as.character(train$Type); test$Type <- as.character(test$Type)
+train$Type[train$Type == 'FC'] <- 1; test$Type[test$Type == 'FC'] <- 1
+train$Type[train$Type == 'IL'] <- 2; test$Type[test$Type == 'IL'] <- 2
+train$Type[train$Type == 'DT'] <- 0; test$Type[test$Type == 'DT'] <- 0;
+test$Type[test$Type == 'MB'] <- 0
+
+train$Type <- as.factor(train$Type); test$Type <- as.factor(test$Type)
+train$Open.Date <- NULL
+
+
+# Cleaning the cities variable
+table(train$City) # Seems to be that Istanbul is the Largest City
+table(test$City)
+
+
+train$City[train$City == "Ä°stanbul"] <- 1; test$City[test$City == "Ä°stanbul"] <- 1
+train$City[train$City != "1"] <- 0; test$City[test$City != "1"] <- 0
+train$City <- as.integer(train$City); test$City <- as.integer(test$City)
+
+table(train$City); table(test$City)
+#train$City <- NULL; test$City <- NULL
+
+#Remove ID's
+train$Id <- NULL
+
+
+
+train_correlation_ready <- sapply(X = train, FUN = as.numeric)
+corr <- cor(train_correlation_ready)
+
+
+plot(train$P2, train$revenue)
+
+
+pca <- prcomp(train_correlation_ready, scale.=T)
+summary(pca)
+
+pred.revenue <- predict(pca, train_correlation_ready)
+
+
+svm_PCA <- (svm(pred.revenue))
+svm_pca_pred <- predict(svm_PCA)
+
+
+plot(train$revenue); points(pred.revenue, col = 'blue', pch = 16)
+
+
+#### Mining ####
+
+controls <- trainControl(method = 'repeatedcv',
+                         number = 10,
+                         repeats = 1)
+
+gbm_mining <- train(form = revenue~.,
+                    data = train, 
+                    method = 'gbm',
+                    trControl = controls)
+summary(gbm_mining) # Year, City, P22, P28, P10, P29, P8
+gbm_predict <- predict(gbm_mining, newdata = train)
+rmse(train$revenue, gbm_predict)
+plot(train$revenue); points(gbm_predict, col = 'red', pch = 16)
+
+gbm_formula <- revenue ~ Year + City + P22 + P10 + P29 + P8
+
+summary(lm(gbm_formula, data = train))
+
+rf_mining <- train(form = revenue~.,
+                   data = train, 
+                   method = 'rf',
+                   trControl=controls)
+summary(rf_mining)
+rf <- randomForest(revenue~., train)
+rf$importance/100000000000 #
+varImpPlot(rf, sort=T, n.var= 10) #Vars: Year, P29, day_number, Month, City, P6, P28
+
+rf_formula <- revenue ~ Year + P29 + day_number + Month + City + P6
+
+
+
+#################### Modeling #######################
+
+
+lm <- lm(formula= revenue ~., data = train)
+summary(lm) # Reveals Year, P28, P26, P20, P8 as significant
+
+formula <- revenue ~ Year + Type + Month + P28 + P26 + P20 + P8 + P6 + P2 + City.Group + Day + day_number
+summary(lm(formula, data = train))
+
+library(earth)
+mars <- earth(formula, data = train)
+mars_prediction <- predict(mars)
+rmse(train$revenue, mars_prediction)
+mars_prediction <- predict(mars, newdata = test)
+
+#Mining
+library(rpart)
+tree <- rpart(revenue~., data = train)
+plot(tree); text(tree) #Year, P28, P25, P4, P31, P22, Month, P10
+
+formula <- revenue ~ Year + P28 + P25 + P4 + P31 + P22 + Month + P10
+mars <- earth(formula, data = train)
+mars_prediction <- predict(mars)
+rmse(actual = train$revenue, predicted = mars_prediction)
+summary(mars)
+
+
+svm <- svm(revenue ~., data = train)
+svm_prediction <- predict(svm, test)
+rmse(train$revenue, predict(svm))
+
+remove_outliers <- function(x, na.rm = TRUE, ...){
+  qnt <- quantile(x, probs = c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+
+qnt_test <- quantile(train$revenue, probs = c(.25,.75))
+qnt_test
+
+#train$revenue <- remove_outliers(train$revenue)
+train_cleaned <- na.omit(train)
+
+svm_model <- svm(revenue ~ ., data = train); rmse(train$revenue, predict(svm_model))
+svm_prediction <- predict(svm, newdata = test) # Good for a score of 1798337.97363, 47Th
+Predicted <- svm_prediction
+
+
+
+# Try lasso or elasticnet next
+library(caret)
+controls <- trainControl(method = 'repeatedcv',
+                         number = 10,
+                         repeats = 1)
+
+
+svmPoly <- train(form = revenue~., data = train,
+                          method = 'svmPoly',
+                          trControl = controls)
+
+svmLinear <- train(form = correlation_formula, data = train,
+                   method = 'svmLinear',
+                   trControl = controls)
+target <- train$revenue
+plot(target)
+points(predict(svmPoly, newdata = train), col = 'red', pch = 16); rmse(train$revenue, predict(svmPoly, newdata = train))
+points(predict(svmLinear, newdata = train), col = 'blue', pch = 16); rmse(train$revenue, predict(svmLinear, newdata = train))
+points(predict(svm_model, newdata = train), col ='orange', pch = 16); rmse(train$revenue, predict(svm_model, newdata = train))
+
+svm_model <- svm(formula, data = train)
+points(predict(svm_model, train), col = 'green', pch = 16)
+rmse(train$revenue, predict(svm_model, train))
+
+rf <- randomForest(revenue~., data = train)
+points(predict(rf), col = 'green', pch = 16)
+rmse(target, predict(rf))
+
+
+Predicted <- predict(svm_model, newdata = test) 
+
+
+
+
+############ split the data #############
+
+
+sample_size <- ceiling(.65*nrow(train))
+trainIndex <- createDataPartition(train$revenue, p = .75,
+                                  list = FALSE,
+                                  times = 1)
+
+train_sample <- train[trainIndex,]
+test_sample <- train[-trainIndex,]
+
+head(train_sample)
+
+
+correlation_formula <- revenue ~ City.Group + Year
+correlation_formula_mars <- revenue ~ City.Group + Year + P2 + P28 + P29 + P6 + P13 + P21 + P31 
+
+
+
+lm <- (lm(correlation_formula, train))
+rmse(train$revenue, predict(lm)) # 2340909
+
+mars <- earth(correlation_formula_mars, train)
+rmse(train$revenue, predict(mars)) # 2092905
+
+
+svm_model <- svm(revenue ~., data = train)
+rmse(train$revenue, predict(svm_model)) # 2094577
+
+# Test the training models
+mars_train_predictions <- predict(mars)
+lm_train_predictions <- predict(lm)
+svm_train_predictions <- predict(svm_model)
+train_ensemble <- (mars_train_predictions + svm_train_predictions)/3
+
+rmse(train$revenue, train_ensemble); plot(train$revenue); points(train_ensemble, col = 'blue', pch = 16)
+
+##### First Ensemble #####
+mars_predicted <- predict(mars, newdata = test); rmse(train$revenue, predict(mars)) #2092905
+lm_predicted <- predict(lm, newdata = test); rmse(train$revenue, predict(lm)) #2290162
+svm_predicted <- predict(svm, newdata = test); rmse(train$revenue, predict(svm_model)) #2061985
+#train_ensemble <- (mars_predicted + svm_predicted) / 2
+rmse(train$revenue, train_ensemble)
+
+
+
+
+
+ensemble <- (mars_predicted+ svm_predicted)/2 #1986201 RMSE
+
+head(ensemble)
+#rmse(train$revenue, ensemble)
+
+
+#Predicted <- predict(svm_model, newdata = test)
+Predicted <- ensemble # TOP TEN MUH FUCKAH!!!!!
+
+##### Second Ensemble #####
+
+gbm_mining <- train(form = revenue~.,
+                    data = train, 
+                    method = 'gbm',
+                    trControl = controls)
+gbm_model <- predict(gbm_mining, newdata = train)
+rmse(train$revenue, gbm_model) #1766689
+
+svm_regress <- svm(revenue~., train)
+svm_model <- predict(svm_regress, newdata=train)
+rmse(train$revenue, svm_model) #2076944
+
+mars<- earth(gbm_formula, data = train)
+mars_model <- predict(mars, train)
+rmse(mars_model, train$revenue)
+
+svm_predicted <- predict(svm_regress, newdata = test)
+gbm_predicted <- predict(gbm_mining, newdata = test)
+
+#Ensembling
+ensemble <- (svm_model + gbm_model)/2
+rmse(train$revenue, train_ensemble); plot(train$revenue); points(train_ensemble, col = 'red', pch = 16)
+points(predict(gbm_mining, newdata = train), col = 'blue')
+ensemble_test_data <- (gbm_predicted + svm_predicted)/2
+
+Predicted <- ensemble_test_data
+
+
+################ SUBMISSION #########################
+
+submission <- cbind(test$Id, Predicted)
+submission <- data.frame(submission)
+names(submission) <- c('Id', 'Prediction')
+head(submission)
+write.csv(submission, "Submission 26, SGD and SVM ensemble.csv", row.names = FALSE)
+
+
+
+
