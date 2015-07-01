@@ -1,0 +1,268 @@
+
+
+
+rm(list=ls())
+
+setwd("C:/Users/v-alexas/Documents/Kaggle/Titanic/")
+list.files()
+
+library(e1071)
+library(kernlab)
+library(randomForest)
+library(caret)
+
+train <- read.csv("train.csv", header = T, stringsAsFactors = F)
+test <- read.csv("test.csv", header = T, stringsAsFactors = F)
+
+str(train)
+
+test$Survived <- NA
+
+head(train)
+
+full <- rbind(train, test)
+
+tail(full)
+train$PassengerId <- NULL # Remove the ID column
+
+full$title <- NA
+
+test_marker <- test$PassengerId[1]
+
+table(train$Embarked)
+table(test$Embarked)
+
+# Change the sex
+full$Sex[full$Sex == "male"] <- 1; full$Sex[full$Sex == "female"] <- 0
+
+full$Sex <- as.integer(full$Sex)
+barplot(prop.table(table(full$Sex)), col = c(4,2))
+
+# Make the title column
+for(i in 1:length(full$Name)){
+  full$title[i] <- 'None'
+  if(grepl('Mr.', full$Name[i])){full$title[i] <- 'Mr'}
+  if(grepl('Miss.', full$Name[i])){full$title[i] <- 'Miss'}
+  if(grepl('Mrs.', full$Name[i])){full$title[i] <- 'Mrs'}
+  if(grepl('Master.', full$Name[i])){full$title[i] <- 'Master'}
+  if(grepl('Dr.', full$Name[i])){full$title[i] <- 'Doctor'}
+  if(grepl('Major.', full$Name[i])){full$title[i] <- 'Major'}
+}
+full$title <- as.factor(full$title)
+
+# Clean the Embarked Column
+for(i in 1:length(full$Embarked)){
+  if(full$Embarked[i] == 'C'){full$Embarked[i] <- 1}
+  if(full$Embarked[i] == 'Q'){full$Embarked[i] <- 2}
+  if(full$Embarked[i] == 'S'){full$Embarked[i] <- 3}
+  if(full$Embarked[i] == ''){full$Embarked[i] <- 4}
+}
+table(full$Embarked)
+full$Embarked <- as.integer(full$Embarked)
+
+
+###### Clean the cabin Column #####
+full$Cabin_clean <- 0
+
+for(i in 1:length(full$Cabin)){
+  
+  if(grepl("A", full$Cabin[i])){full$Cabin_clean[i] <- 1}
+  if(grepl("B", full$Cabin[i])){full$Cabin_clean[i] <- 2}
+  if(grepl("C", full$Cabin[i])){full$Cabin_clean[i] <- 3}
+  if(grepl("D", full$Cabin[i])){full$Cabin_clean[i] <- 4}
+  if(grepl("F", full$Cabin[i])){full$Cabin_clean[i] <- 5}
+  if(grepl("E", full$Cabin[i])){full$Cabin_clean[i] <- 5}
+  #else{full$Cabin_clean[i] <- 0}
+}
+table(full$Cabin_clean)
+full$Cabin_clean <- as.integer(full$Cabin_clean)
+
+#####################
+
+head(full)
+
+str(full)
+mean_fare <- mean(full$Fare[full$PassengerId > test_marker], na.rm=T)
+sum(is.na(full$Fare))
+
+#####Remove the missing fare#####
+# ID 1044
+full$Fare[1044] <- mean_fare
+sum(is.na(full$Fare))
+
+
+# We need to add the age in now
+ageFit_formula <- Age ~ Sex + Fare + Pclass + title + Parch + SibSp + Cabin_clean
+full$ageFit <- 0
+lm_age <- ksvm(ageFit_formula, data = full)
+summary(lm_age)
+
+full$ageFit <- predict(lm_age, newdata = full)
+head(full)
+
+# Are they a kid?
+full$child <- 0
+full$child[full$ageFit < 18] <- 1
+table(full$child)
+
+# Ticket Cleaning
+
+full$Ticket_clean <- 0
+
+for(i in 1:length(full$Ticket)){
+  
+  if(grepl("A.", full$Ticket[i]))   {full$Ticket_clean[i] <- 1}
+  if(grepl("A/4", full$Ticket[i]))  {full$Ticket_clean[i] <- 2}
+  if(grepl("A/5", full$Ticket[i]))  {full$Ticket_clean[i] <- 3}
+  if(grepl("C.A.", full$Ticket[i])) {full$Ticket_clean[i] <- 4}
+  if(grepl("PC", full$Ticket[i]))   {full$Ticket_clean[i] <- 5}
+  if(grepl("SOTON", full$Ticket[i])){full$Ticket_clean[i] <- 6}
+  if(grepl("STON", full$Ticket[i])) {full$Ticket_clean[i] <- 7}
+  if(grepl("W.C.", full$Ticket[i])) {full$Ticket_clean[i] <- 8}
+  
+}
+
+table(full$Ticket_clean)
+# Economic Class
+
+
+
+
+####################### Recreate the Data Frames ##########################
+
+train_cleaned <- full[full$PassengerId < test_marker,]
+test_cleaned <- full[full$PassengerId >= test_marker,]
+
+head(train_cleaned); head(test_cleaned)
+
+# Modeling
+formula <- as.factor(Survived) ~ ageFit + Sex + title + Cabin_clean + SibSp + child + Cabin_clean + Parch + Fare + Embarked + Pclass
+
+#Random Forest
+rf <- randomForest(formula, data = train_cleaned)
+varImpPlot(rf, pch = 16, col = 'blue')
+
+rf_predictions <- predict(rf, newdata = test_cleaned)
+length(rf_predictions) - length(test_cleaned$PassengerId)
+
+
+# Support Vector Machines RBF Kernal #
+library(kernlab)
+svm_model <- ksvm(formula, data = train_cleaned)
+svm_model
+
+svm_predictions <- predict(svm_model, newdata = test_cleaned)
+length(svm_predictions) - length(test_cleaned$PassengerId)
+
+
+## Logistic Regression ##
+
+glm_formula <- Survived ~ title + Sex + Fare + ageFit
+
+glm_model <- glm(glm_formula, data = train_cleaned)
+glm_model$fitted.values
+
+glm_predictions <- predict(glm_model, newdata = test_cleaned)
+
+threshold <- 0.5
+
+for(i in 1:length(glm_predictions)){
+  
+  if(glm_predictions[i] >= threshold){glm_predictions[i] <- 1}
+  if(glm_predictions[i] < threshold){glm_predictions[i] <- 0}
+}
+table(glm_predictions)
+
+
+
+## Gradient Boosting ## 
+
+library(caret)
+
+fitControls <- trainControl(## 10-fold CV
+  method = "repeatedcv",
+  number = 10,
+  ## Repeated 5 times
+  repeats = 5)
+
+set.seed(500)
+
+gbm_fit <- train(formula, data = train_cleaned,
+                 method = 'gbm',
+                 trControl = fitControls,
+                 verbose = FALSE)
+
+gbm_fit
+plot(gbm_fit)
+
+gbm_predictions <- predict(gbm_fit, newdata = test_cleaned)
+length(gbm_predictions) - length(test_cleaned$PassengerId)
+
+# Boosted Tree
+
+btree <- train(formula, data = train_cleaned,
+               method = 'ada',
+               trControl = fitControls,
+               verbose = F)
+btree
+
+btree_predictions <- predict(btree, newdata= test_cleaned)
+
+######### AdaBoost Bagging #########
+
+adaBag_ensemble <- train(formula, data = train_cleaned,
+                         method = 'AdaBag',
+                         trControl = fitControls,
+                         verbose = F)
+
+##### Make Submission #####
+
+predictions <- rf_predictions
+
+predictions <- svm_predictions
+
+predictions <- as.factor(glm_predictions)
+
+predictions <- gbm_predictions
+
+predictions <- btree_predictions
+## Ensembling ##
+
+#install.packages('devtools')
+#library(devtools)
+#install_github('zachmayer/caretEnsemble')
+#library(caretEnsemble)
+
+model_list <- c(rf, svm_model, gbm_fit, glm_model)
+
+#stacking <- fitmode 
+
+ensemble <- ((as.integer(rf_predictions) - 1) + 
+               (as.integer(svm_predictions) - 1) + 
+               (as.integer(gbm_predictions) - 1) +
+               (as.integer(glm_predictions)))/ 4
+head(ensemble)
+summary(ensemble)
+
+for(i in 1:length(ensemble)){
+  if(ensemble[i] >= threshold){ensemble[i] <- 1}
+  if(ensemble[i] < threshold){ensemble[i] <- 0}
+}
+head(ensemble)
+summary(ensemble)
+
+predictions <- ensemble
+
+################### Submission File #############################
+submission_frame <- data.frame(test_cleaned$PassengerId, predictions)
+names(submission_frame) <- c("passengerId", "Survived")
+head(submission_frame)
+write.csv(x = submission_frame, "Submission 11, Boosted tree.csv", row.names = F)
+
+# GenderClass Baseline is 0.7655
+# Random Forest Good for a score of .7707
+# Support Vector Classifier good for a score of 0.7942
+# GBM and ensmeble(4) are both good for a score of 0.8038
+
+
+
